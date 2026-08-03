@@ -56,9 +56,10 @@ const display = String(value ?? 0).padStart(4, "0");
         <p class="u-eyebrow">Why it can fail</p>
         <h2 class="band__title">The binding is the whole story</h2>
         <p class="band__note">
-          The adapter declares a <code>SESSION</code> binding in the wrangler config it emits, but Alchemy
-          never reads that file. If the stack does not declare the namespace too, this page throws instead
-          of counting.
+          The stack is the only thing that decides whether a <code>SESSION</code> namespace exists on
+          the deployed Worker. The adapter decides whether the app reaches for one. Drop the binding
+          from <code>env</code> and this page throws; to have neither, set a non-Cloudflare session
+          driver in <code>astro.config.mjs</code>.
         </p>
       </div>
 

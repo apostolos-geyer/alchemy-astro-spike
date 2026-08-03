@@ -37,59 +37,92 @@ export default defineConfig({ integrations: [svelte()] });
 Alchemy loads it via `configFile` and layers its own overrides on top:
 
 ```js
-// generated at .alchemy/astro-build.mjs — never hand-edited
+// generated at <cwd>/.alchemy/astro-build.mjs — never hand-edited
 import { build } from "astro";
 import cloudflare from "@astrojs/cloudflare";
 
 await build({
-  configFile: "astro.config.mjs",   // MUST be relative — astro joins it onto `root`
+  root: "/abs/path/to/app",         // explicit, so nothing depends on process cwd
+  configFile: "astro.config.mjs",   // root-relative — astro joins it onto `root`
   output: "server",
+  outDir: "dist",
   adapter: cloudflare({ sessionKVBindingName: "SESSION" }),
 });
 ```
 
-No adapter, no `output`, no `configPath` in your config. `sessionBinding` and
-`imagesBinding` are resource props injected into the adapter, so nothing
-Cloudflare-facing is authored twice.
+No adapter, no `output`, no `outDir`, no `configPath` in your config. Those are
+resource props injected into Astro and the adapter, so nothing Cloudflare-facing
+is authored twice.
+
+The rule, with no exceptions: **Cloudflare concerns go in the stack, Astro
+concerns go in `astro.config.mjs`.** Anything the resource doesn't set — your
+`integrations`, `markdown`, `image`, `site`, `vite`, `server.port`, `session` —
+passes through untouched (arrays concatenate, objects deep-merge, so
+`integrations: [svelte()]` survives).
 
 The resource is [`infra/Astro.ts`](./infra/Astro.ts).
 
 ---
 
-## The contract
+## Who owns what
 
-`@astrojs/cloudflare` v14 writes `dist/server/wrangler.json` at build time,
-stating exactly what it needs:
+**Alchemy is the deployment authority.** The stack declares the Worker, so
+deploy involves no wrangler config in either direction — `main`, `bundle`,
+`assets` and `compatibility` come straight from the resource's props.
 
-```jsonc
-{ "main": "entry.mjs", "no_bundle": true,
-  "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],
-  "assets": { "binding": "ASSETS", "directory": "../client" },
-  "compatibility_date": "2026-04-15", "compatibility_flags": [],
-  "kv_namespaces": [{ "binding": "SESSION" }],   // no id — a Wrangler provisioning placeholder
-  "images": { "binding": "IMAGES" } }
+`@astrojs/cloudflare` does write a `dist/server/wrangler.json` during the build.
+That is an artifact of the `wrangler deploy` path, which Alchemy replaces
+wholesale. Nothing here reads it, and nothing should.
+
+For `alchemy dev` the direction reverses. Wrangler config is the format the
+Cloudflare Vite plugin behind `astro dev` speaks, so the resource **generates**
+`.dev.wrangler.json` from the stack's `env` — [see below](#local-dev). You don't
+author that one either.
+
+Single source of truth in both modes, by two different mechanisms.
+
+### What the resource actually encodes
+
+Not the adapter's config — the adapter's build **output layout**, the same way
+`Website.Vite` knows where Vite puts things.
+
+| Concern | Declared as | Notes |
+|---|---|---|
+| project root | `cwd` prop | passed to Astro as its `root`; the stack may live anywhere |
+| out dir | `outdir` prop | forced into Astro's config, so the two can't disagree |
+| server entry | derived: `<outdir>/server/entry.mjs` | must be a **static string**, not an `Output` |
+| pre-bundled output | `bundle: false` | **mandatory** — re-bundling breaks the route manifest |
+| static assets | derived: `<outdir>/client` | server/client already split; no `.assetsignore` juggling |
+| compat date | `compatibility.date` prop | |
+| compat flags | `compatibility.flags` prop | `nodejs_compat` added automatically — the adapter emits none |
+| session KV | `env: { SESSION: KV.Namespace(…) }` | verified required |
+| Images | `env: { IMAGES: … }` | verified **absent** unless bound |
+| `_headers` / `_redirects` | read automatically from `client/` | come free |
+| session binding name | `sessionBinding` prop | injected into the adapter |
+| images binding name | `imagesBinding` prop | injected into the adapter |
+| everything else on the adapter | `adapter` prop | `imageService`, `prerenderEnvironment`, … (JSON-serializable only) |
+| Workers cache | `cache: { enabled: true }` | plain passthrough — [see below](#workers-cache) |
+| auxiliary workers | separate `Worker` resources | unmapped |
+
+### Path independence
+
+`cwd` is the only path knob, and it is handed to Astro as its `root` rather than
+inherited from the process. So the stack file can live in a different directory,
+a different package, or a monorepo root:
+
+```ts
+export class Site extends Astro<Site>()("Site", {
+  cwd: fileURLToPath(new URL("../../apps/web", import.meta.url)),
+  env: { … },
+}) {}
 ```
 
-> [!IMPORTANT]
-> **Alchemy never reads that file.** It is the single most important fact here.
-> Every line must be mirrored into the resource or it simply doesn't happen —
-> which is why `nodejs_compat`, the `SESSION` KV namespace, and the adapter's
-> binding names are all supplied by the resource.
-
-| Adapter emits | Alchemy equivalent | Notes |
-|---|---|---|
-| `main: entry.mjs` | `main: "dist/server/entry.mjs"` | must be a **static string** |
-| `no_bundle: true` | `bundle: false` | **mandatory** — re-bundling breaks the route manifest |
-| `assets.directory: ../client` | `assets.directory: "dist/client"` | server/client already split; no `.assetsignore` juggling |
-| `compatibility_date` | `compatibility.date` | mirror it |
-| `compatibility_flags: []` | `compatibility.flags` | adapter emits **none** — add `nodejs_compat` |
-| `kv_namespaces: [SESSION]` | `env: { SESSION: KV.Namespace(…) }` | verified required |
-| `images: { IMAGES }` | Images binding in `env` | verified **absent** unless bound |
-| `client/_headers` | read automatically | `_headers` / `_redirects` come free |
-| `sessionKVBindingName` | `sessionBinding` prop | injected into the adapter |
-| `imagesBindingName` | `imagesBinding` prop | injected into the adapter |
-| `cache: { enabled: true }` | `cache: { enabled: true }` | plain passthrough — [see below](#workers-cache) |
-| `auxiliaryWorkers` | separate `Worker` resources | unmapped |
+`configFile` may be absolute or relative to `cwd` — it is normalized to
+root-relative, because Astro does `path.join(root, configFile)` and would
+otherwise concatenate an absolute path onto the root. The generated build runner
+is written to `<cwd>/.alchemy/` on purpose: its bare `astro` and
+`@astrojs/cloudflare` imports resolve from its own location, so it has to sit
+next to the app's `node_modules`, not next to the stack.
 
 ---
 
@@ -300,13 +333,15 @@ Each cost real debugging time. Most fail with no useful diagnostic.
 |---|---|
 | `TypeError: undefined is not an object (evaluating 'main.split("?")[0]')` | `main` must be a **static string**. Worker pre-create runs concurrently with `Command.Build`, so an `Output` is unresolved there. Ordering comes from the Output-valued `assets`. ([#1049](https://github.com/alchemy-run/alchemy/issues/1049)) |
 | `ERR_SERVER_NOT_RUNNING` at end of build | Run the generated runner under **`node`, not `bun`**. The adapter's prerenderer disposes a miniflare instance at end-of-build; the CLI swallowed the throw, a top-level `await build()` propagates it. |
-| `ConfigNotFound: Unable to resolve --config "/abs/path"` | `configFile` must be **relative** — astro does `path.join(root, configFile)`. |
+| `ConfigNotFound: Unable to resolve --config "/abs/path"` | Astro does `path.join(root, configFile)`, so an absolute path gets concatenated. The resource normalizes `configFile` to root-relative, so you may pass either form. |
+| Build lands somewhere the Worker isn't looking | An `outDir` in `astro.config.mjs` used to win the build while the resource still derived `main`/`assets` from its own `outdir`. Now the `outdir` prop is forced into Astro's config, so they cannot diverge. |
 | Every deploy rebuilds, nothing changed | Gitignore `.alchemy/`. `.alchemy/log/out` is rewritten each deploy, changing `Command.Build`'s input hash forever. |
 | `astro dev: Failed to load url os` | Never import the `alchemy/Cloudflare` barrel in app code — it pulls `node:os`. Use `alchemy/Cloudflare/Bridge`. |
 | `Dev server process exited before becoming ready` | R2 `bucket_name` must be **lowercase** in the dev config. That is the entire diagnostic you get. |
 | Duplicate resources: `Site/ApiWorker` alongside `ApiWorker` | Namespace only the Build. Wrapping the whole resource in `Namespace.push(id)` resolves `env` inside that namespace and re-creates everything it references. ([#1052](https://github.com/alchemy-run/alchemy/issues/1052)) |
 | Worker re-uploads on every deploy | `assets.hash` must be a string. `build.hash` is `{input, output}`; the object never compares equal after a state round-trip. ([#1056](https://github.com/alchemy-run/alchemy/issues/1056)) |
 | SSR routes stop re-rendering | Workers Cache fronts the whole Worker. Every dynamic route needs `Cache-Control: no-store`. Nothing errors. |
+| Site serves `Alchemy worker is being deployed...` forever after a **successful** deploy | Same cache, nastier. Alchemy's pre-create stub is `new Response("Alchemy worker is being deployed...")` — a 200 with **no `Cache-Control`**. Hit the URL during the few seconds before the real script uploads and Workers Cache stores the stub in front of a perfectly good deploy. The deploy output looks clean and the uploaded script is correct. Confirm with `?cb=1`; clear by purging. |
 | Action response isn't the object you expected | Astro Actions are devalue-encoded — `[{"echoed":1},"HI",…]`, not plain JSON. |
 | Redirect test asserts 200 | `HttpClient` follows 3xx at the transport level — assert the outcome, not the status. |
 
@@ -354,8 +389,16 @@ NO_DESTROY=1 bun test …         # keep the stack up between runs
 ## Still unverified
 
 - The dev service-binding bridge resolving live
-- Windows paths — `main` is built with `"/"` joins
-- `cwd` for a monorepo subdirectory: written, never exercised
+- Windows paths — the runner command uses `path.relative`, which yields
+  backslashes there
+- `cwd` pointing at a *sibling package* under a monorepo root. A stack in a
+  **different directory** is verified — [`stacks/site/alchemy.run.ts`](./stacks/site/alchemy.run.ts)
+  passes no paths and deploys a working site — but that directory is still
+  inside the app root, and the app's `node_modules` was still the nearest one
+- The `adapter` passthrough prop: typed and merged, but no option has been
+  exercised end-to-end (`imageService: "passthrough"` in particular)
+- A non-Cloudflare `session.driver` (e.g. `sessionDrivers.null()`) to drop the
+  session KV entirely — traced through the adapter source, never built
 - `auxiliaryWorkers` — would be separate `Worker` resources
 
 > [!NOTE]

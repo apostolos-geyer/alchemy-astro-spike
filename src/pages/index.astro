@@ -86,9 +86,10 @@ export type SiteEnv = Cloudflare.InferEnv<typeof Site>;`;
       </div>
 
       <p class="split__warn">
-        The load-bearing detail: Alchemy never reads the <code>wrangler.json</code> the adapter emits.
-        Every line of that contract is mirrored explicitly by the resource. Miss one and it silently does
-        not happen.
+        Alchemy is the deployment authority, so deploying touches no <code>wrangler.json</code> at all.
+        For <code>alchemy dev</code> the direction reverses: wrangler config is the format
+        <code>astro dev</code> speaks, so the resource generates it from the stack. One source of truth
+        either way.
       </p>
     </div>
   </section>

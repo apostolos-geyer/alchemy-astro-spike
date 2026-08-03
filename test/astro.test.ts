@@ -3,9 +3,12 @@ import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Test from "alchemy/Test/Bun";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Schedule from "effect/Schedule";
 import * as HttpBody from "effect/unstable/http/HttpBody";
 import * as HttpClient from "effect/unstable/http/HttpClient";
+import { fileURLToPath } from "node:url";
 import ApiWorker from "../infra/ApiWorker.ts";
 import { Site } from "../infra/site.ts";
 
@@ -73,7 +76,7 @@ test(
 );
 
 test(
-  "nodejs_compat is applied by Alchemy (adapter's wrangler.json sets no flags)",
+  "nodejs_compat is applied by the stack (the adapter emits no flags of its own)",
   Effect.gen(function* () {
     const { url } = yield* stack;
     const res = yield* get(`${url}/api/hello?echo=spike`);
@@ -197,13 +200,46 @@ test(
 );
 
 test(
-  "IMAGES binding is NOT present unless Alchemy binds it (adapter's wrangler.json is inert)",
+  "the generated build runner is independent of the invoking cwd",
+  Effect.gen(function* () {
+    // The stack sets `cwd` from `import.meta.url`, so the runner Alchemy wrote
+    // must pin an ABSOLUTE astro `root`. If it instead leaned on the spawned
+    // process's cwd, deploying this stack from any other directory would break.
+    yield* stack;
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const appRoot = path.resolve(
+      fileURLToPath(new URL("..", import.meta.url)),
+    );
+
+    const runner = yield* fs.readFileString(
+      path.join(appRoot, ".alchemy", "astro-build.mjs"),
+    );
+    const inline = JSON.parse(
+      runner.match(/const inline = (\{[\s\S]*?\n\});/)![1]!,
+    ) as { root: string; configFile: string; outDir: string; output: string };
+
+    expect(path.isAbsolute(inline.root)).toBe(true);
+    expect(path.resolve(inline.root)).toBe(appRoot);
+    // Astro does `path.join(root, configFile)`, so an absolute value here would
+    // be concatenated onto the root instead of replacing it.
+    expect(path.isAbsolute(inline.configFile)).toBe(false);
+    // The stack owns outDir too — otherwise astro.config could send the build
+    // somewhere the resource isn't looking.
+    expect(inline.outDir).toBe("dist");
+    expect(inline.output).toBe("server");
+  }),
+  { timeout: 30_000 },
+);
+
+test(
+  "IMAGES binding is NOT present unless the stack binds it",
   Effect.gen(function* () {
     const { url } = yield* stack;
     const res = yield* get(`${url}/api/images`);
     const json = (yield* res.json) as Record<string, unknown>;
-    // Same class of gap as SESSION: the adapter declares IMAGES, Alchemy
-    // never reads that declaration, so the binding is absent.
+    // Same shape as SESSION: the stack is the only thing that decides what is
+    // bound, so an adapter that wants IMAGES still gets nothing without `env`.
     expect(json.present).toBe(false);
   }),
   { timeout: 180_000 },
@@ -241,7 +277,6 @@ test(
   "_redirects is honored by the assets layer",
   Effect.gen(function* () {
     const { url } = yield* stack;
-    const client = yield* HttpClient.HttpClient;
 
     // effect's HttpClient does NOT follow redirects unless you opt in with
     // `followRedirects`, so the 3xx is directly observable. `get` retries

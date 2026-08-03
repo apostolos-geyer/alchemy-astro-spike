@@ -51,10 +51,17 @@ export type SiteEnv = Cloudflare.InferEnv<typeof Site>;   // workerd Env, derive
 ```
 
 > [!IMPORTANT]
-> The load-bearing detail: **Alchemy never reads the `dist/server/wrangler.json`
-> the adapter emits.** So every line of that contract — `no_bundle`,
-> `nodejs_compat`, the `SESSION` KV binding, `IMAGES` — is mirrored explicitly by
-> the resource. Miss one and it silently doesn't happen.
+> **Alchemy is the deployment authority**, so deploy touches no wrangler config
+> at all — `main`, `bundle`, `assets` and `compatibility` come straight from the
+> stack. For `alchemy dev`, wrangler config is the format `astro dev` speaks, so
+> the resource *generates* `.dev.wrangler.json` from the stack's `env`. One
+> source of truth in both modes; you never author wrangler config either way.
+
+The split has no exceptions: **Cloudflare concerns in the stack, Astro concerns
+in `astro.config.mjs`.** Anything the resource doesn't set passes through
+untouched, so `integrations`, `markdown`, `server.port`, `session` and the rest
+stay where they belong. `cwd` is the only path knob — it's handed to Astro as
+its `root`, so the stack can live in another directory entirely.
 
 ---
 

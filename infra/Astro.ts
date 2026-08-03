@@ -1,3 +1,4 @@
+import type { Options as CloudflareAdapterOptions } from "@astrojs/cloudflare";
 import { AlchemyContext } from "alchemy/AlchemyContext";
 import * as Cloudflare from "alchemy/Cloudflare";
 import type {
@@ -12,10 +13,20 @@ import * as Namespace from "alchemy/Namespace";
 import * as Output from "alchemy/Output";
 import { effectClass } from "alchemy/Util/effect";
 import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as nodeFs from "node:fs";
 import * as nodePath from "node:path";
+
+/**
+ * Adapter options the stack owns and therefore cannot be passed through:
+ * the binding names come from {@link AstroProps.sessionBinding} /
+ * {@link AstroProps.imagesBinding}, and `configPath` is the dev wrangler
+ * config this resource generates.
+ */
+type PassthroughAdapterOptions = Omit<
+  CloudflareAdapterOptions,
+  "sessionKVBindingName" | "imagesBindingName" | "configPath"
+>;
 
 export interface AstroProps<Bindings extends WorkerBindingProps = {}>
   extends
@@ -25,16 +36,40 @@ export interface AstroProps<Bindings extends WorkerBindingProps = {}>
     >,
     Omit<Command.BuildProps, "env" | "outdir" | "command"> {
   /**
-   * Astro's `outDir`. The `@astrojs/cloudflare` adapter splits this into
-   * `<outdir>/client` (static assets) and `<outdir>/server` (the SSR Worker).
+   * Absolute or relative path to the Astro project root — the directory
+   * holding `astro.config.mjs`, `src/`, and the `node_modules` that has
+   * `astro` and `@astrojs/cloudflare` installed.
+   *
+   * This is the ONLY path knob. Everything else (config file, out dir, build
+   * runner, dev wrangler config) is resolved from it, and it is passed to
+   * Astro as its `root`, so the stack file may live anywhere — a different
+   * directory, a different package, a monorepo root.
+   *
+   * A relative value resolves against `process.cwd()`; prefer
+   * `fileURLToPath(new URL("../app", import.meta.url))` if the stack should
+   * not care where it was invoked from.
+   *
+   * @default process.cwd()
+   */
+  cwd?: string;
+  /**
+   * Astro's `outDir`, resolved against {@link cwd}. The `@astrojs/cloudflare`
+   * adapter splits it into `<outdir>/client` (static assets) and
+   * `<outdir>/server` (the SSR Worker).
+   *
+   * The stack owns this: it is forced into Astro's config, so an `outDir` in
+   * the app's `astro.config` is overridden rather than silently disagreeing
+   * with where this resource looks for the build.
+   *
    * @default "dist"
    */
   outdir?: string;
   /**
-   * Path to the app's Astro config, resolved against `cwd`. Alchemy drives
-   * Astro's Node API and loads this config underneath its own overrides —
-   * the same relationship `Website.Vite` has with your `vite.config.ts`.
-   * Pass `false` to load no config file at all.
+   * Path to the app's Astro config. Absolute, or relative to {@link cwd}.
+   * Alchemy drives Astro's Node API and loads this config underneath its own
+   * overrides — the same relationship `Website.Vite` has with your
+   * `vite.config.ts`. Pass `false` to load no config file at all.
+   *
    * @default "astro.config.mjs"
    */
   configFile?: string | false;
@@ -42,6 +77,12 @@ export interface AstroProps<Bindings extends WorkerBindingProps = {}>
    * Name of the KV binding Astro's session driver uses. Injected into the
    * adapter, so it is declared HERE and nowhere else — put a KV namespace
    * under this key in `env`.
+   *
+   * To run with no session KV at all, set a non-Cloudflare driver in the
+   * app's Astro config (`session: { driver: sessionDrivers.null() }`) and
+   * leave the binding out of `env`; the adapter always installs *some*
+   * session driver, but only the Cloudflare one demands a KV namespace.
+   *
    * @default "SESSION"
    */
   sessionBinding?: string;
@@ -51,6 +92,22 @@ export interface AstroProps<Bindings extends WorkerBindingProps = {}>
    * @default "IMAGES"
    */
   imagesBinding?: string | false;
+  /**
+   * The rest of the `@astrojs/cloudflare` adapter's options — `imageService`,
+   * `prerenderEnvironment`, `persistState`, `remoteBindings`, `experimental`,
+   * and so on. Merged UNDER the options this resource derives from the stack,
+   * so the binding names always win.
+   *
+   * The build runs in a spawned `node` process and these cross as JSON, so
+   * only serializable values survive. Function-valued options are not
+   * supported.
+   *
+   * @example
+   * ```ts
+   * Astro("Site", { adapter: { imageService: "passthrough" } })
+   * ```
+   */
+  adapter?: PassthroughAdapterOptions;
   /**
    * Escape hatch: run this instead of Alchemy's generated build runner. Doing
    * so gives up adapter injection, so anything the adapter needs must then be
@@ -82,13 +139,26 @@ type AstroWorker<Bindings extends WorkerBindingProps> = Cloudflare.Worker<{
  * and class form), same `const Bindings` inference, so `env` bindings are
  * typed and `Cloudflare.InferEnv<typeof Site>` yields the workerd `Env`.
  *
- * The adapter emits its own `dist/server/wrangler.json` stating its contract.
- * Alchemy reads none of it, so this resource mirrors it explicitly:
+ * ## Who owns what
  *
- *   main       -> dist/server/entry.mjs
- *   no_bundle  -> bundle: false   (adapter pre-bundles; re-bundling breaks it)
- *   assets     -> dist/client
- *   compat     -> date mirrored; nodejs_compat added (adapter emits NO flags)
+ * Alchemy is the deployment authority: the stack declares the Worker, so
+ * deploy involves no wrangler config in either direction. `main`,
+ * `bundle: false`, `assets` and `compatibility` come straight from these
+ * props. (The `dist/server/wrangler.json` the adapter's own toolchain emits is
+ * an artifact of the `wrangler deploy` path, which Alchemy replaces; nothing
+ * here reads it.)
+ *
+ * For `alchemy dev`, wrangler config is the format the Cloudflare Vite plugin
+ * behind `astro dev` speaks, so this resource GENERATES it from the stack's
+ * `env` — see the dev branch below. You never author it.
+ *
+ * What the resource does encode is the adapter's build OUTPUT layout, the same
+ * way `Website.Vite` knows where Vite puts things:
+ *
+ *   main       -> <outdir>/server/entry.mjs
+ *   assets     -> <outdir>/client
+ *   bundle     -> false           (adapter pre-bundles; re-bundling breaks it)
+ *   compat     -> nodejs_compat added (the adapter emits no flags of its own)
  *
  * @example Typed bindings + class form
  * ```ts
@@ -97,6 +167,13 @@ type AstroWorker<Bindings extends WorkerBindingProps> = Cloudflare.Worker<{
  * }) {}
  *
  * type Env = Cloudflare.InferEnv<typeof Site>;
+ * ```
+ *
+ * @example App in a different directory from the stack
+ * ```ts
+ * class Site extends Cloudflare.Website.Astro<Site>()("Site", {
+ *   cwd: fileURLToPath(new URL("../../apps/web", import.meta.url)),
+ * }) {}
  * ```
  */
 export const Astro: {
@@ -163,7 +240,6 @@ const toDevBinding = (name: string, value: unknown): DevBinding => {
   }
 };
 
-
 /**
  * Emit the module Alchemy runs instead of shelling out to the `astro` CLI.
  *
@@ -177,19 +253,34 @@ const toDevBinding = (name: string, value: unknown): DevBinding => {
  * Consequence: adapter options live in ONE place (this resource's props).
  * Nothing about bindings, session/images binding names, or the dev wrangler
  * config is authored twice.
+ *
+ * The runner is written INSIDE the Astro project root on purpose: its bare
+ * `astro` / `@astrojs/cloudflare` imports resolve from its own location, so it
+ * must sit next to the app's `node_modules`, not next to the stack file.
+ *
+ * `root` is passed explicitly rather than inherited from the spawned process's
+ * cwd, so nothing here depends on where `alchemy deploy` was invoked from.
+ *
+ * Runs under `node`, not `bun`: the adapter's prerenderer tears down a
+ * miniflare instance at the end of the build, which throws
+ * ERR_SERVER_NOT_RUNNING under bun. Astro is a Node tool; the CLI swallowed
+ * this, a top-level `await build()` propagates it.
  */
-// Run under `node`, not `bun`: the adapter's prerenderer tears down a
-// miniflare instance at the end of the build, which throws
-// ERR_SERVER_NOT_RUNNING under bun. Astro is a Node tool; the CLI swallowed
-// this, a top-level `await build()` propagates it.
 const writeRunner = (opts: {
   mode: "build" | "dev";
   file: string;
+  root: string;
+  outDir: string;
   configFile: string | false;
   adapter: Record<string, unknown>;
 }) => {
   const inline = JSON.stringify(
-    { configFile: opts.configFile, output: "server" },
+    {
+      root: opts.root,
+      configFile: opts.configFile,
+      output: "server",
+      outDir: opts.outDir,
+    },
     null,
     2,
   );
@@ -228,39 +319,64 @@ const makeAstro = (id: string, propsEff?: any) =>
     const ctx = yield* AlchemyContext;
     const outdir = props.outdir ?? "dist";
 
+    // The single path anchor. Absolute, so nothing below depends on where the
+    // stack file lives or where `alchemy deploy` was run from.
+    const root = nodePath.resolve(props.cwd ?? ".");
+
+    // Astro does `path.join(root, configFile)`, so an absolute config path
+    // would be concatenated rather than used. Normalize to root-relative
+    // (`path.join` collapses any leading `..`, so configs outside the root
+    // still resolve).
+    const rawConfigFile = props.configFile ?? "astro.config.mjs";
+    const configFile =
+      rawConfigFile === false
+        ? false
+        : nodePath.isAbsolute(rawConfigFile)
+          ? nodePath.relative(root, rawConfigFile)
+          : rawConfigFile;
+
     // `main` MUST be a static string, not an Output derived from the build:
     // the Worker's pre-create phase runs CONCURRENTLY with Command.Build, so
     // an Output is unresolved there and crashes getCompatibility ->
     // isPythonMain. Ordering comes from the Output-valued `assets` below.
-    // Command.Build resolves `outdir` against `cwd`; `main` against cwd().
-    const main = [
-      typeof props.cwd === "string" ? props.cwd : undefined,
-      outdir,
-      "server/entry.mjs",
-    ]
-      .filter(Boolean)
-      .join("/");
+    // Absolute, matching `root`; Worker uses `main` as given.
+    const main = nodePath.join(root, outdir, "server/entry.mjs");
 
-    const projectRoot = typeof props.cwd === "string" ? props.cwd : ".";
-    const configFile = props.configFile ?? "astro.config.mjs";
-    const runnerDir = nodePath.resolve(projectRoot, ".alchemy");
+    const runnerDir = nodePath.join(root, ".alchemy");
+
     /**
-     * Adapter options DERIVED FROM THE STACK and injected programmatically.
+     * Adapter options DERIVED FROM THE STACK, layered over the caller's
+     * passthrough so the stack-owned binding names always win.
      * The app's astro.config never mentions them, so they exist once.
      */
     const adapterOptions: Record<string, unknown> = {
+      ...props.adapter,
       sessionKVBindingName: props.sessionBinding ?? "SESSION",
       ...(props.imagesBinding === undefined
         ? {}
         : { imagesBindingName: props.imagesBinding }),
     };
 
+    // Props this resource consumes itself; everything else is Worker props.
+    const {
+      assets: _assets,
+      adapter: _adapter,
+      command: _command,
+      configFile: _configFile,
+      cwd: _cwd,
+      devCommand: _devCommand,
+      imagesBinding: _imagesBinding,
+      memo: _memo,
+      outdir: _outdir,
+      sessionBinding: _sessionBinding,
+      ...workerProps
+    } = props;
+
     // ---- dev mode -------------------------------------------------------
-    // Skip the build, emit a wrangler config describing the stack's bindings
-    // so `astro dev` can serve them, and hand the Worker over to the external
-    // dev server.
+    // Skip the build, generate the wrangler config the Cloudflare Vite plugin
+    // behind `astro dev` needs in order to emulate the stack's bindings, and
+    // hand the Worker over to the external dev server.
     if (ctx.dev) {
-      const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
 
       const kv: unknown[] = [];
@@ -292,14 +408,8 @@ const makeAstro = (id: string, propsEff?: any) =>
         } else skipped.push(name);
       }
 
-      const configPath = path.resolve(
-        typeof props.cwd === "string" ? props.cwd : ".",
-        ".dev.wrangler.json",
-      );
-      const bridgeDir = path.resolve(
-        typeof props.cwd === "string" ? props.cwd : ".",
-        ".dev.registry",
-      );
+      const configPath = path.join(root, ".dev.wrangler.json");
+      const bridgeDir = path.join(root, ".dev.registry");
       const alchemyRegistry =
         process.env.ALCHEMY_REGISTRY_PATH ??
         path.join(process.env.HOME ?? ".", ".local", "state", "alchemy", "registry");
@@ -389,16 +499,16 @@ const makeAstro = (id: string, propsEff?: any) =>
       writeRunner({
         mode: "dev",
         file: devRunner,
-        // Astro does `path.join(root, configFile)` — it MUST stay relative.
+        root,
+        outDir: outdir,
         configFile,
-        adapter: { ...adapterOptions, configPath: configPath },
+        adapter: { ...adapterOptions, configPath },
       });
 
       const devCmd = yield* Command.Dev("Dev", {
         command:
-          props.devCommand ??
-          `node ${nodePath.relative(nodePath.resolve(projectRoot), devRunner)}`,
-        cwd: props.cwd,
+          props.devCommand ?? `node ${nodePath.relative(root, devRunner)}`,
+        cwd: root,
         env: {
           // No ASTRO_DEV_BACKGROUND needed: the runner calls astro's `dev()`
           // directly, so there is no CLI to daemonize and outlive the stack.
@@ -410,19 +520,6 @@ const makeAstro = (id: string, propsEff?: any) =>
           WRANGLER_REGISTRY_PATH: ready,
         },
       }).pipe(Namespace.push(id));
-
-      // Drop build-only + assets-config props: in dev the external server
-      // serves the assets, and `assets` here is config-only (no directory /
-      // hash), which the Worker's assets type rejects.
-      const {
-        assets: _assets,
-        command: _command,
-        devCommand: _devCommand,
-        outdir: _outdir,
-        memo: _memo,
-        cwd: _cwd,
-        ...workerProps
-      } = props;
 
       return yield* Cloudflare.Worker<any, WorkerAssetsConfig>(id, {
         ...workerProps,
@@ -441,25 +538,26 @@ const makeAstro = (id: string, propsEff?: any) =>
     writeRunner({
       mode: "build",
       file: buildRunner,
-      // Astro does `path.join(root, configFile)` — it MUST stay relative.
+      root,
+      outDir: outdir,
       configFile,
       adapter: adapterOptions,
     });
 
     const build = yield* Command.Build("Build", {
-      command:
-        props.command ??
-        `node ${nodePath.relative(nodePath.resolve(projectRoot), buildRunner)}`,
-      cwd: props.cwd,
+      command: props.command ?? `node ${nodePath.relative(root, buildRunner)}`,
+      cwd: root,
       outdir,
       memo: props.memo,
     }).pipe(Namespace.push(id));
 
     return yield* Cloudflare.Worker<any, WorkerAssetsConfig>(id, {
-      ...props,
+      ...workerProps,
       main,
       bundle: false,
       assets: {
+        // `build.outdir` is relative to process.cwd() (Command.Build stores it
+        // that way so state is portable across machines).
         directory: Output.map(build.outdir, (d) => `${d}/client`),
         // AssetsWithHash.hash is typed `string` — use the output-tree hash so
         // an unchanged build is a genuine no-op.
