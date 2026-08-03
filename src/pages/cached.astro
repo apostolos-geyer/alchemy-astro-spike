@@ -1,0 +1,11 @@
+---
+// Read-through Workers Cache sits IN FRONT of the worker: with the cache
+// enabled and a cacheable Cache-Control, repeat requests should never reach
+// this handler, so the nonce must stay identical.
+export const prerender = false;
+const nonce = crypto.randomUUID();
+Astro.response.headers.set("Cache-Control", "public, max-age=300");
+Astro.response.headers.set("Cache-Tag", "spike-cached");
+---
+<html lang="en"><head><meta charset="utf-8" /><title>cached</title></head>
+<body><p data-nonce={nonce}>nonce: {nonce}</p></body></html>

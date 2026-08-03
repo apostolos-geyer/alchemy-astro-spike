@@ -1,0 +1,22 @@
+---
+// SSR: collection read at REQUEST time. This is the case that forces the
+// content store into the SERVER bundle.
+export const prerender = false;
+import { getCollection } from "astro:content";
+import Counter from "../components/Counter.svelte";
+const posts = await getCollection("blog");
+const nonce = crypto.randomUUID();
+const totalChars = posts.reduce((n, p) => n + (p.body?.length ?? 0), 0);
+
+// Workers Cache is enabled on this Worker, so a dynamic route must opt OUT
+// explicitly or the edge serves a cached render and SSR silently stops.
+Astro.response.headers.set("Cache-Control", "no-store");
+---
+<html lang="en"><head><meta charset="utf-8" /><title>ssr + content + svelte</title></head>
+<body>
+  <h1>ssr content</h1>
+  <p data-nonce={nonce}>nonce: {nonce}</p>
+  <p data-count={posts.length}>posts: {posts.length}</p>
+  <p data-chars={totalChars}>body chars: {totalChars}</p>
+  <Counter client:load start={7} />
+</body></html>

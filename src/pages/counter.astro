@@ -1,0 +1,29 @@
+---
+// Uses Astro.session, which the adapter wires to the Cloudflare KV session
+// driver against the "SESSION" binding. If that binding is not present on the
+// deployed Worker, this must fail.
+export const prerender = false;
+
+let value: number | undefined;
+let error: string | undefined;
+
+try {
+  const current = (await Astro.session?.get<number>("count")) ?? 0;
+  value = current + 1;
+  await Astro.session?.set("count", value);
+} catch (e) {
+  error = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+}
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Astro SSR spike — session</title>
+  </head>
+  <body>
+    <h1>session counter</h1>
+    <p data-count={value ?? "none"}>count: {value ?? "none"}</p>
+    <p data-error={error ?? "none"}>error: {error ?? "none"}</p>
+  </body>
+</html>

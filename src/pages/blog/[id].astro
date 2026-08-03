@@ -1,0 +1,13 @@
+---
+// PRERENDERED per-entry pages via getStaticPaths.
+export const prerender = true;
+import { getCollection, render } from "astro:content";
+export async function getStaticPaths() {
+  const posts = await getCollection("blog");
+  return posts.map((post) => ({ params: { id: post.id }, props: { post } }));
+}
+const { post } = Astro.props;
+const { Content } = await render(post);
+---
+<html lang="en"><head><meta charset="utf-8" /><title>{post.data.title}</title></head>
+<body data-post-id={post.id}><Content /></body></html>

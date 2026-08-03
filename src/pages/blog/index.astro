@@ -1,0 +1,12 @@
+---
+// PRERENDERED: collection read at build time -> should become static HTML.
+export const prerender = true;
+import { getCollection } from "astro:content";
+const posts = await getCollection("blog");
+---
+<html lang="en"><head><meta charset="utf-8" /><title>blog (prerendered)</title></head>
+<body>
+  <h1>blog index (prerendered)</h1>
+  <p data-count={posts.length}>posts: {posts.length}</p>
+  <ul>{posts.map((p) => <li><a href={`/blog/${p.id}`}>{p.data.title}</a></li>)}</ul>
+</body></html>

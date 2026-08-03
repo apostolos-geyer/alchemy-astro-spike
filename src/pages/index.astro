@@ -1,0 +1,20 @@
+---
+// Prerendered at build time — must be served by the ASSETS layer, not the Worker.
+export const prerender = true;
+const builtAt = new Date().toISOString();
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Astro SSR spike — static</title>
+  </head>
+  <body>
+    <h1>static page</h1>
+    <p data-built-at={builtAt}>built at {builtAt}</p>
+    <ul>
+      <li><a href="/ssr">/ssr</a></li>
+      <li><a href="/api/hello">/api/hello</a></li>
+    </ul>
+  </body>
+</html>
