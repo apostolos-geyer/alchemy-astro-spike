@@ -14,7 +14,7 @@ a `Cloudflare.Website.Astro` resource shaped as a peer of `Website.Vite`.
 | | |
 |---|---|
 | **Deploy path** | 12 / 12 live tests at best; ~10–11/15 on a busy account (propagation, not code) |
-| **Local dev** | 2 / 3 — service bindings to Alchemy's local Workers don't resolve |
+| **Local dev** | 3 / 3 — incl. service bindings into Alchemy's local Workers |
 | **Browser** | verified — Svelte hydration 7 → 8, no console errors |
 | **Versions** | Astro `7.1.6` · `@astrojs/cloudflare` `14.1.7` · `alchemy@2.0.0-beta.67` |
 
@@ -74,8 +74,7 @@ types · Svelte islands **incl. real-browser hydration** · content collections
 (prerendered *and* request-time) · middleware · Astro Actions · `_redirects` ·
 Workers Cache · idempotent redeploys · clean teardown.
 
-**Not verified:** the dev service-binding bridge resolving live, Windows paths,
-monorepo `cwd`, `auxiliaryWorkers`.
+**Not verified:** Windows paths, monorepo `cwd`, `auxiliaryWorkers`.
 
 ---
 
@@ -131,8 +130,9 @@ Tests use `alchemy/Test/Bun`, so they run under plain `bun test` — no
 - Not reviewed. Not hardened. Not a library.
 - `infra/Astro.ts` is a *proposal* for what a `Cloudflare.Website.Astro` could
   look like, not a considered API.
-- The dev-mode registry bridge is incomplete and left in deliberately, with its
-  failure documented, so the next person doesn't re-derive it from scratch.
+- The dev-mode registry bridge works, but its entries are reaped after 5 minutes
+  (miniflare prunes by mtime) — a long dev session needs a re-deploy to rewrite
+  them. A keep-alive touch would fix it properly.
 - One earlier finding — unreachable Svelte-compiler chunks bloating the worker —
   was **retracted**; it didn't reproduce on a cold Vite cache. Recorded in
   `ASTRO.md` so nobody chases it again.

@@ -452,14 +452,17 @@ const makeAstro = (id: string, propsEff?: any) =>
           nodeFs.mkdirSync(bridgeDir, { recursive: true });
           const services: Array<{ binding: string; service: string }> = [];
           resolved.forEach((scriptName, i) => {
-            const file = `${encodeURIComponent(scriptName)}.json`;
-            const src = nodePath.join(alchemyRegistry, file);
+            // miniflare keys the registry by verbatim filename and writes no
+            // extension; alchemy writes `<name>.json`. Bridge it across
+            // unchanged and `<name>` never resolves.
+            const key = encodeURIComponent(scriptName);
+            const src = nodePath.join(alchemyRegistry, `${key}.json`);
             if (!nodeFs.existsSync(src)) return;
             const e = JSON.parse(nodeFs.readFileSync(src, "utf8"));
             const w = (e.services ?? []).find((x: any) => x.kind === "worker");
             if (!w) return;
             nodeFs.writeFileSync(
-              nodePath.join(bridgeDir, file),
+              nodePath.join(bridgeDir, key),
               `${JSON.stringify(
                 {
                   debugPortAddress: e.debugPortAddress,

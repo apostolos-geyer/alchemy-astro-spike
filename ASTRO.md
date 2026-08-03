@@ -5,7 +5,7 @@ Field guide · verified 3 Aug 2026 · Astro `7.1.6` · `@astrojs/cloudflare` `14
 | | |
 |---|---|
 | **Deploy path** | 12 / 12 live tests — at best, see the note below |
-| **Local dev** | 2 / 3 — service bindings to Alchemy's local Workers don't resolve |
+| **Local dev** | 3 / 3 — incl. service bindings into Alchemy's local Workers |
 | **Browser** | verified — hydration 7 → 8, no console errors |
 
 > [!NOTE]
@@ -288,7 +288,7 @@ there is no daemon to outlive `alchemy destroy`.
 | Binding | Status | Note |
 |---|---|---|
 | KV / R2 / D1 / vars | works | miniflare-local stores — names match, **state does not** |
-| Service → Alchemy Worker | **broken** | bridge built, doesn't resolve |
+| Service → Alchemy Worker | works | bridged registry, no cloud round-trip |
 | SESSION / IMAGES / ASSETS | works | adapter auto-provides |
 
 **The env proxy is not needed.** Unlike TanStack Start, top-level
@@ -296,7 +296,7 @@ there is no daemon to outlive `alchemy destroy`.
 and request-time reads return identical keys, and a Proxy changes nothing.
 
 <details>
-<summary><b>Why service bindings don't resolve</b></summary>
+<summary><b>How service bindings resolve</b></summary>
 
 Alchemy runs **workerd directly, not miniflare**, and writes its dev registry to
 `~/.local/state/alchemy/registry`. Same protocol generation as miniflare,
@@ -314,9 +314,18 @@ different JSON shape:
 `infra/Astro.ts` **implements that translation** and points `astro dev` at it via
 `MINIFLARE_REGISTRY_PATH` (what the CF vite plugin reads, via miniflare's
 `getDefaultDevRegistryPath()`; `wrangler dev` reads `WRANGLER_REGISTRY_PATH` —
-both are set). The bridged file has the right fields and the env vars verifiably
-reach the process, but miniflare still reports `Worker "…" not found`.
-**Unresolved.** Call sibling Workers over HTTPS in dev until it is.
+both are set).
+
+The load-bearing detail is the **file name**, not the contents. miniflare keys
+its registry by the verbatim filename and writes its own entries with no
+extension (`__asset-worker__`, `site-dev`), while alchemy writes `<name>.json`.
+Bridge the file across unchanged and miniflare registers a worker called
+`<name>.json` while the config asks for `<name>` — surfacing only as
+`Worker "…" not found. Make sure it is running locally.` That one character is
+the whole reason this was believed impossible for most of the spike.
+
+miniflare reaps entries older than 5 minutes, so stale bridges self-clean; a dev
+session that outlives its entry needs a re-deploy to rewrite it.
 
 Dead ends, both tested: `experimental_remote: true` is silently ignored;
 `remote: true` stops `astro dev` booting at all.
@@ -388,7 +397,6 @@ NO_DESTROY=1 bun test …         # keep the stack up between runs
 
 ## Still unverified
 
-- The dev service-binding bridge resolving live
 - Windows paths — the runner command uses `path.relative`, which yields
   backslashes there
 - `cwd` pointing at a *sibling package* under a monorepo root. A stack in a
