@@ -1,82 +1,96 @@
 # astro-ssr-spike
 
-A working spike: **Astro SSR deployed to Cloudflare Workers via [Alchemy](https://github.com/alchemy-run/alchemy)**,
-using a `Cloudflare.Website.Astro` resource shaped as a peer of `Website.Vite`.
+**Astro SSR deployed to Cloudflare Workers via [Alchemy](https://github.com/alchemy-run/alchemy)** —
+a `Cloudflare.Website.Astro` resource shaped as a peer of `Website.Vite`.
 
 > [!WARNING]
-> **This is 100% Claude-authored and has barely been human-reviewed.**
-> Every line of `infra/`, `test/`, and the docs was written by Claude Code in a
-> single exploratory session. It has not had a careful human pass. The *claims*
-> are backed by tests that ran against real Cloudflare — see below for exactly
-> what is and isn't verified — but the code quality, API design, and naming have
-> not been scrutinised by anyone. Treat it as a detailed research artifact, not
-> as a contribution ready to merge.
+> **100% Claude-authored, barely human-reviewed.** Every line of `infra/`,
+> `test/`, and the docs was written by Claude Code in a single exploratory
+> session. The *claims* are backed by tests that ran against real Cloudflare —
+> see exactly what is and isn't verified below — but the code quality, API
+> design, and naming have not been scrutinised by anyone. A detailed research
+> artifact, not a contribution ready to merge.
+
+| | |
+|---|---|
+| **Deploy path** | 12 / 12 live tests at best; ~10–11/15 on a busy account (propagation, not code) |
+| **Local dev** | 2 / 3 — service bindings to Alchemy's local Workers don't resolve |
+| **Browser** | verified — Svelte hydration 7 → 8, no console errors |
+| **Versions** | Astro `7.1.6` · `@astrojs/cloudflare` `14.1.7` · `alchemy@2.0.0-beta.67` |
+
+**→ [`ASTRO.md`](./ASTRO.md) is the real document.** Full adapter→Alchemy mapping,
+every capability with its evidence, dev-mode limits, and every footgun with the
+actual error string it produces.
+
+---
 
 ## What it demonstrates
 
 `Cloudflare.Website.Vite` can't build Astro — Astro's build is driven by the
 `astro` CLI, not a plain `vite build`. But Astro exposes a **Node API**, so
 Alchemy drives it directly and injects the Cloudflare adapter, exactly as
-`Website.Vite` injects the Cloudflare vite plugin:
+`Website.Vite` injects the Cloudflare vite plugin.
+
+Your Astro config stays app-only — no adapter, no `output`, no `configPath`:
+
+```js
+// astro.config.mjs
+export default defineConfig({ integrations: [svelte()] });
+```
+
+Everything Cloudflare-facing is declared once, in the stack:
 
 ```ts
+// infra/site.ts
 export class Site extends Astro<Site>()("Site", {
   cache: { enabled: true },
   env: { SESSION: SessionKv, CACHE: Cache, UPLOADS: Uploads, API: ApiWorker },
 }) {}
 
-export type SiteEnv = Cloudflare.InferEnv<typeof Site>;
+export type SiteEnv = Cloudflare.InferEnv<typeof Site>;   // workerd Env, derived
 ```
 
-Your `astro.config.mjs` stays app-only — no adapter, no `output`, no
-`configPath`:
+> [!IMPORTANT]
+> The load-bearing detail: **Alchemy never reads the `dist/server/wrangler.json`
+> the adapter emits.** So every line of that contract — `no_bundle`,
+> `nodejs_compat`, the `SESSION` KV binding, `IMAGES` — is mirrored explicitly by
+> the resource. Miss one and it silently doesn't happen.
 
-```js
-export default defineConfig({ integrations: [svelte()] });
-```
+---
 
-Alchemy loads it via `configFile` and layers its own overrides on top, so
-adapter options live in exactly one place. The load-bearing detail:
-**Alchemy never reads the `dist/server/wrangler.json` the adapter emits**, so
-every line of that contract — `no_bundle`, `nodejs_compat`, the `SESSION` KV
-binding, `IMAGES` — is mirrored explicitly by the resource.
+## Verified
 
-## Status
-
-| | |
-|---|---|
-| Deploy path | **12 / 12** live tests at best; ~10–11/15 on a busy account (propagation flake — see ASTRO.md) |
-| Local dev | **2 / 3** — service bindings to Alchemy's local Workers don't resolve |
-| Versions | Astro `7.1.6`, `@astrojs/cloudflare` `14.1.7`, `alchemy@2.0.0-beta.67` |
-
-Verified: per-request SSR · prerendered routes off the assets layer ·
-`nodejs_compat` · Astro sessions over bound KV (cookie round-trip) · KV / R2 /
-vars / service bindings · typed RPC via `toRpcAsync` into an Effect-native
-Worker · `InferEnv` types · Svelte islands · content collections (prerendered
-*and* request-time) · middleware · Astro Actions · `_redirects` · Workers Cache ·
-idempotent redeploys · clean teardown.
+Per-request SSR · prerendered routes off the assets layer · `nodejs_compat` ·
+Astro sessions over bound KV (cookie round-trip) · KV / R2 / vars / service
+bindings · typed RPC via `toRpcAsync` into an Effect-native Worker · `InferEnv`
+types · Svelte islands **incl. real-browser hydration** · content collections
+(prerendered *and* request-time) · middleware · Astro Actions · `_redirects` ·
+Workers Cache · idempotent redeploys · clean teardown.
 
 **Not verified:** the dev service-binding bridge resolving live, Windows paths,
 monorepo `cwd`, `auxiliaryWorkers`.
 
-**[`ASTRO.md`](./ASTRO.md) is the real document** — the full adapter→Alchemy
-mapping table, every verified capability with its evidence, the dev-mode limits,
-and 11 footguns with the actual error strings they produce.
+---
 
 ## Upstream bugs found
 
-Four bugs in Alchemy surfaced while building this. All reproduced on latest
-`main`, none duplicates; issues and PRs filed:
+Four surfaced while building this; all reproduced on latest `main`, none duplicates.
 
 | Bug | Issue | PR |
 |---|---|---|
 | `StaticSite` passes an object as the assets hash → re-uploads every deploy | [#1056](https://github.com/alchemy-run/alchemy/issues/1056) | [#1057](https://github.com/alchemy-run/alchemy/pull/1057) |
 | Output-valued `main` crashes pre-create in `isPythonMain` | [#1049](https://github.com/alchemy-run/alchemy/issues/1049) | [#1050](https://github.com/alchemy-run/alchemy/pull/1050) |
-| `StaticSite` duplicates every `env` resource into its namespace | [#1052](https://github.com/alchemy-run/alchemy/issues/1052) | [#1053](https://github.com/alchemy-run/alchemy/pull/1053) (draft — breaking) |
+| `StaticSite` duplicates every `env` resource into its namespace | [#1052](https://github.com/alchemy-run/alchemy/issues/1052) | [#1053](https://github.com/alchemy-run/alchemy/pull/1053) *(draft — breaking)* |
 | Tagged resource without its layer → opaque `news.name` TypeError | [#1054](https://github.com/alchemy-run/alchemy/issues/1054) | [#1055](https://github.com/alchemy-run/alchemy/pull/1055) |
 
-The resource here sidesteps the two `StaticSite` bugs by construction, which is
-also why it diverges from the shipped `Website.StaticSite`.
+A fifth is **unfiled**: `Test.getWhenReady` doesn't handle Alchemy's own
+pre-create stub, which answers HTTP 200 — measured at 4/15 versus 11/15 for a
+plain exponential retry.
+
+This resource sidesteps the two `StaticSite` bugs by construction, which is also
+why it diverges from the shipped `Website.StaticSite`.
+
+---
 
 ## Layout
 
@@ -103,6 +117,8 @@ NO_DESTROY=1 bun test …         # keep the stack up between runs
 Tests use `alchemy/Test/Bun`, so they run under plain `bun test` — no
 `alchemy-test` CLI needed.
 
+---
+
 ## Caveats worth repeating
 
 - Not reviewed. Not hardened. Not a library.
@@ -110,6 +126,6 @@ Tests use `alchemy/Test/Bun`, so they run under plain `bun test` — no
   look like, not a considered API.
 - The dev-mode registry bridge is incomplete and left in deliberately, with its
   failure documented, so the next person doesn't re-derive it from scratch.
-- One earlier finding (unreachable Svelte-compiler chunks bloating the worker)
-  was **retracted** — it didn't reproduce on a cold Vite cache. Noted in
+- One earlier finding — unreachable Svelte-compiler chunks bloating the worker —
+  was **retracted**; it didn't reproduce on a cold Vite cache. Recorded in
   `ASTRO.md` so nobody chases it again.
