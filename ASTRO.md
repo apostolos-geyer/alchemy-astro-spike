@@ -1,12 +1,44 @@
 # Astro SSR on Cloudflare with Alchemy
 
-Status: **deploy path verified end-to-end (12/12 live tests). Dev path partial (2/3).**
+Status: **deploy path 12/12 live at its best; dev path 2/3.**
+
+> Runs against a busy account degrade to ~10–11/15 from edge propagation, not
+> from code. Verified by control: the *previous CLI-based* resource scores the
+> same on the same harness in the same session. Failures look like empty bodies,
+> `"Alchemy worker is being deployed..."` (Alchemy's pre-create stub, which
+> answers HTTP **200** — a status-only retry sails past it), and 500s while
+> bindings propagate. Re-run before believing a failure.
 Verified against Astro `7.1.6`, `@astrojs/cloudflare` `14.1.7`, `alchemy@2.0.0-beta.67`.
 
 `Cloudflare.Website.Vite` cannot build Astro — Astro's build is driven by the
-`astro` CLI, not a plain `vite build`. But the *output* is an ordinary
-Workers-with-assets deployment, so a peer resource shaped exactly like
-`Website.Vite` works. That resource is [`infra/Astro.ts`](./infra/Astro.ts).
+`astro` CLI, not a plain `vite build`. But Astro exposes a **Node API**, so
+Alchemy can drive it directly and inject the Cloudflare adapter, exactly as
+`Website.Vite` injects the Cloudflare vite plugin. That resource is
+[`infra/Astro.ts`](./infra/Astro.ts).
+
+**Single source of truth.** Your `astro.config.mjs` holds app concerns only:
+
+```js
+export default defineConfig({ integrations: [svelte()] });
+```
+
+No adapter, no `output`, no `configPath`. Alchemy loads that file via
+`configFile` and layers its own overrides on top:
+
+```js
+// generated at .alchemy/astro-build.mjs — never hand-edited
+import { build } from "astro";
+import cloudflare from "@astrojs/cloudflare";
+await build({
+  configFile: "astro.config.mjs",     // MUST be relative: astro joins it onto `root`
+  output: "server",
+  adapter: cloudflare({ sessionKVBindingName: "SESSION" }),
+});
+```
+
+Adapter options are derived from the resource's props (`sessionBinding`,
+`imagesBinding`, and in dev the generated `configPath`), so nothing
+Cloudflare-facing is authored twice.
 
 ---
 
@@ -37,6 +69,8 @@ simply doesn't happen.
 | `kv_namespaces: [{SESSION}]` | `env: { SESSION: KV.Namespace(...) }` | **verified required** (§3) |
 | `images: {IMAGES}` | Images binding in `env` | verified **absent** unless you bind it |
 | `client/_headers` | read automatically | `Assets.ts` picks up `_headers`/`_redirects` free |
+| `sessionKVBindingName` | `sessionBinding` prop | injected into the adapter |
+| `imagesBindingName` | `imagesBinding` prop | injected into the adapter |
 | `cache: { enabled: true }` | `cache: { enabled: true }` | plain passthrough — see §3a |
 | `auxiliaryWorkers` | separate `Worker` resources | unmapped |
 
@@ -44,12 +78,10 @@ simply doesn't happen.
 
 ## 2. Usage
 
-```ts
-// astro.config.mjs
-import cloudflare from "@astrojs/cloudflare";
+```js
+// astro.config.mjs — app concerns ONLY. No adapter, no output, no configPath;
+// Alchemy injects all of it via astro's Node API.
 export default defineConfig({
-  output: "server",
-  adapter: cloudflare({ configPath: "./.dev.wrangler.json" }), // dev bindings, see §6
   integrations: [svelte()],
 });
 ```
@@ -192,7 +224,13 @@ on a large content site that reads collections at request time.
 ## 4. Local dev (partial)
 
 `alchemy dev` → skips the build → emits `.dev.wrangler.json` from the stack →
-spawns `astro dev` in the foreground → Worker in `dev: { mode: "external" }`.
+runs a generated module that calls astro's `dev()` directly → Worker in
+`dev: { mode: "external" }`. Alchemy injects `configPath` into the adapter, so
+your `astro.config` needs no dev wiring.
+
+Because there is no `astro` CLI in the loop, there is **no daemon** — the older
+`ASTRO_DEV_BACKGROUND=1` workaround is gone, and the dev server is a plain
+child process Alchemy can kill.
 
 | binding | dev | note |
 |---|---|---|
@@ -245,14 +283,18 @@ Also dead ends, tested: `experimental_remote: true` is silently ignored;
    **duplicates every referenced resource**. (Upstream: [#1052](https://github.com/alchemy-run/alchemy/issues/1052))
 6. **`assets.hash` must be a string.** `build.hash` is `{input, output}`; passing the
    object makes every deploy re-upload. (Upstream: [#1056](https://github.com/alchemy-run/alchemy/issues/1056))
-7. **`ASTRO_DEV_BACKGROUND=1`** on the dev command — Astro 7 daemonizes when it
-   detects an agent-run terminal, and a daemonized server survives `alchemy destroy`.
+7. **Run the generated runner under `node`, not `bun`.** The adapter's
+   prerenderer disposes a miniflare instance at end-of-build, which throws
+   `ERR_SERVER_NOT_RUNNING` under bun. The CLI swallowed it; a top-level
+   `await build()` propagates it and fails the build.
 8. **`bun test` doesn't put `node_modules/.bin` on the spawn PATH** — use
    `command: "bun run build"`, not `"astro build"`, in tests.
-9. **Astro Actions are devalue-encoded** (`[{"echoed":1},"HI",...]`), not plain JSON.
-10. **`HttpClient` follows redirects** at the transport level — assert the outcome,
+9. **`configFile` must be relative.** Astro does `path.join(root, configFile)`,
+   so an absolute path silently resolves to nonsense.
+10. **Astro Actions are devalue-encoded** (`[{"echoed":1},"HI",...]`), not plain JSON.
+11. **`HttpClient` follows redirects** at the transport level — assert the outcome,
     not the 3xx status.
-11. **Enabling `cache` silently disables SSR** on every dynamic route that doesn't
+12. **Enabling `cache` silently disables SSR** on every dynamic route that doesn't
     send `Cache-Control: no-store`. Nothing errors; the page just stops re-rendering.
 
 ---

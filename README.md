@@ -15,9 +15,9 @@ using a `Cloudflare.Website.Astro` resource shaped as a peer of `Website.Vite`.
 ## What it demonstrates
 
 `Cloudflare.Website.Vite` can't build Astro — Astro's build is driven by the
-`astro` CLI, not a plain `vite build`. But the *output* of `@astrojs/cloudflare`
-is an ordinary Workers-with-assets deployment, so a peer resource with the same
-signature works:
+`astro` CLI, not a plain `vite build`. But Astro exposes a **Node API**, so
+Alchemy drives it directly and injects the Cloudflare adapter, exactly as
+`Website.Vite` injects the Cloudflare vite plugin:
 
 ```ts
 export class Site extends Astro<Site>()("Site", {
@@ -28,16 +28,24 @@ export class Site extends Astro<Site>()("Site", {
 export type SiteEnv = Cloudflare.InferEnv<typeof Site>;
 ```
 
-The load-bearing detail: **Alchemy never reads the `dist/server/wrangler.json`
-that the adapter emits**, so every line of that contract — `no_bundle`,
-`nodejs_compat`, the `SESSION` KV binding, `IMAGES` — has to be mirrored into
-the resource explicitly, or it silently doesn't happen.
+Your `astro.config.mjs` stays app-only — no adapter, no `output`, no
+`configPath`:
+
+```js
+export default defineConfig({ integrations: [svelte()] });
+```
+
+Alchemy loads it via `configFile` and layers its own overrides on top, so
+adapter options live in exactly one place. The load-bearing detail:
+**Alchemy never reads the `dist/server/wrangler.json` the adapter emits**, so
+every line of that contract — `no_bundle`, `nodejs_compat`, the `SESSION` KV
+binding, `IMAGES` — is mirrored explicitly by the resource.
 
 ## Status
 
 | | |
 |---|---|
-| Deploy path | **12 / 12** live tests against real Cloudflare |
+| Deploy path | **12 / 12** live tests at best; ~10–11/15 on a busy account (propagation flake — see ASTRO.md) |
 | Local dev | **2 / 3** — service bindings to Alchemy's local Workers don't resolve |
 | Versions | Astro `7.1.6`, `@astrojs/cloudflare` `14.1.7`, `alchemy@2.0.0-beta.67` |
 
