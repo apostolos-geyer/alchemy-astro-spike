@@ -3,9 +3,92 @@
 // enabled and a cacheable Cache-Control, repeat requests should never reach
 // this handler, so the nonce must stay identical.
 export const prerender = false;
+import Terminal from "../layouts/Terminal.astro";
+
 const nonce = crypto.randomUUID();
 Astro.response.headers.set("Cache-Control", "public, max-age=300");
 Astro.response.headers.set("Cache-Tag", "spike-cached");
 ---
-<html lang="en"><head><meta charset="utf-8" /><title>cached</title></head>
-<body><p data-nonce={nonce}>nonce: {nonce}</p></body></html>
+
+<Terminal title="Cached render — astro-ssr-spike" active="/cached">
+  <section class="band band--flush">
+    <div class="u-wrap u-stack">
+      <p class="u-eyebrow">Gate /cached · workers cache</p>
+      <h1 class="u-display u-display--md">Reload until<br />it stops changing</h1>
+      <p class="u-lede">
+        This route is server-rendered, but it sends a cacheable <code>Cache-Control</code>, so the
+        Workers Cache in front of the Worker keeps the first answer. Once the edge is warm the nonce
+        below freezes — that frozen value is the proof.
+      </p>
+      <ul class="chipset">
+        <li class="chip">public, max-age=300</li>
+        <li class="chip">cache-tag: spike-cached</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="u-wrap">
+      <div class="frozen">
+        <p class="frozen__key">Nonce</p>
+        <p class="frozen__val" data-nonce={nonce}>{nonce}</p>
+      </div>
+      <p class="hint">
+        A dynamic route has to opt out of this explicitly. Miss the <code>no-store</code> on <a
+          href="/ssr">/ssr</a
+        > and the edge quietly serves a cached render while SSR looks like it still works.
+      </p>
+    </div>
+  </section>
+</Terminal>
+
+<style>
+  .frozen {
+    background: linear-gradient(180deg, #1b232d 0%, #131a22 100%);
+    border-radius: 5px;
+    padding: 1.5rem;
+    display: grid;
+    gap: 0.65rem;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.07),
+      0 26px 50px -26px rgba(11, 16, 22, 0.75);
+  }
+
+  .frozen__key {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 0.625rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(233, 236, 240, 0.38);
+  }
+
+  .frozen__val {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: clamp(0.875rem, 2.6vw, 1.375rem);
+    color: #f0a719;
+    word-break: break-all;
+  }
+
+  .hint {
+    margin: 1.5rem 0 0;
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--mist);
+    max-width: 60ch;
+  }
+
+  .hint a {
+    color: var(--ink);
+    text-underline-offset: 3px;
+  }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: rgba(21, 28, 36, 0.07);
+    padding: 0.1em 0.3em;
+    border-radius: 2px;
+  }
+</style>

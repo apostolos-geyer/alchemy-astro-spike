@@ -1,0 +1,392 @@
+/* ==========================================================================
+   Edge Terminal — design tokens + base
+   A daylight terminal hall (pale concrete) holding one dark instrument: the
+   split-flap board. Boldness is spent on the board; everything else is quiet.
+   ========================================================================== */
+
+:root {
+  /* surface */
+  --hall: #e4e3dc;
+  --hall-hi: #f1f0ea;
+  --hall-lo: #d5d4cb;
+  --panel: #ecebe4;
+
+  /* board */
+  --ink: #151c24;
+  --ink-soft: #2b3540;
+  --flap: #0b1016;
+
+  /* signal */
+  --amber: #f0a719;
+  --amber-lo: #6b4d12;
+  --jade: #2f7d62;
+  --flare: #c8402c;
+
+  /* text */
+  --mist: #6d7580;
+  --rule: rgba(21, 28, 36, 0.14);
+  --rule-strong: rgba(21, 28, 36, 0.3);
+
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --mono: "DM Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --gut: clamp(1.25rem, 4vw, 3.5rem);
+  --max: 74rem;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--body);
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--ink);
+  background: var(--hall);
+  background-image: linear-gradient(180deg, var(--hall-hi) 0%, var(--hall) 38%, var(--hall-lo) 100%);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* --- shared type roles --------------------------------------------------- */
+
+.u-display {
+  font-family: var(--display);
+  font-variation-settings: "wdth" 112;
+  font-weight: 800;
+  text-transform: uppercase;
+  line-height: 0.94;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+.u-eyebrow {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--amber-lo);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+}
+
+.u-eyebrow::before {
+  content: "";
+  width: 0.5em;
+  height: 0.5em;
+  background: var(--amber);
+  flex: none;
+}
+
+.u-display--md {
+  font-size: clamp(2rem, 5.2vw, 3.25rem);
+}
+
+.u-mono {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+}
+
+.u-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1.2rem;
+}
+
+.u-lede {
+  font-size: clamp(1rem, 1.6vw, 1.125rem);
+  line-height: 1.55;
+  color: var(--ink-soft);
+  max-width: 46ch;
+  margin: 0;
+}
+
+.u-wrap {
+  width: 100%;
+  max-width: var(--max);
+  margin-inline: auto;
+  padding-inline: var(--gut);
+}
+
+/* --- chrome -------------------------------------------------------------- */
+
+.chrome {
+  border-bottom: 1px solid var(--rule);
+  background: rgba(241, 240, 234, 0.82);
+  backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.chrome__in {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  min-height: 3.25rem;
+}
+
+.chrome__mark {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex: none;
+}
+
+.chrome__mark::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  background: var(--amber);
+  box-shadow: 0 0 0 3px rgba(240, 167, 25, 0.22);
+  border-radius: 50%;
+}
+
+.chrome__nav {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chrome__nav::-webkit-scrollbar {
+  display: none;
+}
+
+.chrome__link {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--mist);
+  padding: 0.4rem 0.6rem;
+  white-space: nowrap;
+  border-radius: 2px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.chrome__link:hover {
+  color: var(--ink);
+  background: rgba(21, 28, 36, 0.06);
+}
+
+.chrome__link[aria-current="page"] {
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--amber);
+}
+
+/* --- sections ------------------------------------------------------------ */
+
+.band {
+  padding-block: clamp(3rem, 7vw, 5.5rem);
+  border-top: 1px solid var(--rule);
+}
+
+.band--flush {
+  border-top: 0;
+}
+
+/* Eyebrow sits in a left rail, on the title's baseline. */
+.band__head {
+  display: grid;
+  grid-template-columns: 9.5rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.8rem 2rem;
+  margin-bottom: 2.25rem;
+}
+
+.band__head .u-eyebrow {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.band__title {
+  grid-column: 2;
+  grid-row: 1;
+  font-family: var(--display);
+  font-variation-settings: "wdth" 108;
+  font-weight: 700;
+  font-size: clamp(1.5rem, 3vw, 2.125rem);
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  margin: 0;
+}
+
+.band__note {
+  grid-column: 2;
+  grid-row: 2;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--mist);
+  margin: 0;
+  max-width: 54ch;
+}
+
+@media (max-width: 46rem) {
+  .band__head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .band__head .u-eyebrow,
+  .band__title,
+  .band__note {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
+/* --- footer -------------------------------------------------------------- */
+
+.ground {
+  border-top: 1px solid var(--rule-strong);
+  padding-block: 3rem 4rem;
+}
+
+.ground__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 1.5rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.ground__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.ground__key {
+  font-family: var(--mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mist);
+}
+
+.ground__val {
+  font-family: var(--mono);
+  font-size: 0.9375rem;
+  color: var(--ink);
+}
+
+.ground__note {
+  margin: 2rem 0 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--mist);
+  max-width: 60ch;
+}
+
+.ground__note strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* --- generic pieces reused across pages ---------------------------------- */
+
+.chipset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  border: 1px solid var(--rule-strong);
+  padding: 0.3rem 0.55rem;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+.chip--live {
+  border-color: rgba(47, 125, 98, 0.5);
+  color: var(--jade);
+}
+
+.readout {
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+  background: var(--panel);
+  padding: 1.25rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.readout__row {
+  display: grid;
+  grid-template-columns: 8.5rem 1fr;
+  gap: 0.75rem;
+  align-items: baseline;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+}
+
+.readout__key {
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mist);
+}
+
+.readout__val {
+  word-break: break-all;
+  color: var(--ink);
+}
+
+@media (max-width: 34rem) {
+  .readout__row {
+    grid-template-columns: 1fr;
+    gap: 0.15rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -1,0 +1,90 @@
+---
+import { FLEET } from "../data/manifest";
+import "../styles/terminal.css";
+
+interface Props {
+  title: string;
+  description?: string;
+  active?: string;
+}
+
+const {
+  title,
+  description = "Astro SSR on Cloudflare Workers, deployed by Alchemy. A spike, with its evidence attached.",
+  active = "",
+} = Astro.props;
+
+const NAV = [
+  { href: "/", label: "Home" },
+  { href: "/ssr", label: "SSR" },
+  { href: "/counter", label: "Session" },
+  { href: "/ssr-content", label: "Content" },
+  { href: "/blog", label: "Blog" },
+  { href: "/cached", label: "Cache" },
+];
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta name="color-scheme" content="light" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>{title}</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400..700&display=swap"
+    />
+  </head>
+
+  <body>
+    <header class="chrome">
+      <div class="u-wrap chrome__in">
+        <a class="chrome__mark" href="/">astro-ssr-spike</a>
+        <nav class="chrome__nav" aria-label="Routes">
+          {
+            NAV.map((item) => (
+              <a
+                class="chrome__link"
+                href={item.href}
+                aria-current={active === item.href ? "page" : undefined}
+              >
+                {item.label}
+              </a>
+            ))
+          }
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <slot />
+    </main>
+
+    <footer class="ground">
+      <div class="u-wrap">
+        <p class="u-eyebrow" style="margin-bottom: 1.5rem">Fleet</p>
+        <div class="ground__grid">
+          {
+            FLEET.map((item) => (
+              <div class="ground__cell">
+                <span class="ground__key">{item.key}</span>
+                <span class="ground__val">{item.value}</span>
+              </div>
+            ))
+          }
+        </div>
+        <p class="ground__note">
+          <strong>Written by Claude Code, barely reviewed by a human.</strong> The claims are backed
+          by tests that ran against real Cloudflare; the code quality, API design and naming are not.
+          Read <code>ASTRO.md</code> for the adapter-to-Alchemy mapping, the dev-mode limits, and every
+          footgun with the error string it produces.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

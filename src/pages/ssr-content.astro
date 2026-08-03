@@ -4,6 +4,8 @@
 export const prerender = false;
 import { getCollection } from "astro:content";
 import Counter from "../components/Counter.svelte";
+import Terminal from "../layouts/Terminal.astro";
+
 const posts = await getCollection("blog");
 const nonce = crypto.randomUUID();
 const totalChars = posts.reduce((n, p) => n + (p.body?.length ?? 0), 0);
@@ -12,11 +14,142 @@ const totalChars = posts.reduce((n, p) => n + (p.body?.length ?? 0), 0);
 // explicitly or the edge serves a cached render and SSR silently stops.
 Astro.response.headers.set("Cache-Control", "no-store");
 ---
-<html lang="en"><head><meta charset="utf-8" /><title>ssr + content + svelte</title></head>
-<body>
-  <h1>ssr content</h1>
-  <p data-nonce={nonce}>nonce: {nonce}</p>
-  <p data-count={posts.length}>posts: {posts.length}</p>
-  <p data-chars={totalChars}>body chars: {totalChars}</p>
-  <Counter client:load start={7} />
-</body></html>
+
+<Terminal title="Content at request time — astro-ssr-spike" active="/ssr-content">
+  <section class="band band--flush">
+    <div class="u-wrap u-stack">
+      <p class="u-eyebrow">Gate /ssr-content · collection in the worker</p>
+      <h1 class="u-display u-display--md">Markdown, read<br />inside the request</h1>
+      <p class="u-lede">
+        The other blog routes resolve their collection at build time. This one asks for it while the
+        request is in flight, which is what forces Astro's content store into the server bundle. The
+        counts below were computed in the Worker, just now.
+      </p>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="u-wrap">
+      <div class="tiles">
+        <div class="tile">
+          <span class="tile__key">Entries</span>
+          <span class="tile__num" data-count={posts.length}>{posts.length}</span>
+          <span class="tile__note">resolved from the content store</span>
+        </div>
+        <div class="tile">
+          <span class="tile__key">Body characters</span>
+          <span class="tile__num" data-chars={totalChars}>{totalChars.toLocaleString("en-US")}</span>
+          <span class="tile__note">summed across every entry</span>
+        </div>
+        <div class="tile tile--wide">
+          <span class="tile__key">Nonce</span>
+          <span class="tile__mono" data-nonce={nonce}>{nonce}</span>
+          <span class="tile__note">new on every load — this render is not cached</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="u-wrap">
+      <div class="band__head">
+        <p class="u-eyebrow">Island</p>
+        <h2 class="band__title">Svelte, server-rendered then handed over</h2>
+        <p class="band__note">
+          The button ships with its count already at 7, rendered by the Worker. Press it and the
+          number moves, which means the client chunk loaded off the assets layer and hydration took
+          over.
+        </p>
+      </div>
+
+      <div class="island">
+        <Counter client:load start={7} />
+        <p class="island__note">
+          <code>client:load</code> · Astro 7 hydrates from an inline script, so the chunk URL lives in
+          the script body rather than a <code>src</code> attribute.
+        </p>
+      </div>
+    </div>
+  </section>
+</Terminal>
+
+<style>
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .tile {
+    background: var(--panel);
+    padding: 1.25rem 1.35rem 1.4rem;
+    display: grid;
+    align-content: start;
+    gap: 0.4rem;
+  }
+
+  .tile--wide {
+    grid-column: 1 / -1;
+  }
+
+  .tile__key {
+    font-family: var(--mono);
+    font-size: 0.625rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--mist);
+  }
+
+  .tile__num {
+    font-family: var(--display);
+    font-variation-settings: "wdth" 112;
+    font-weight: 700;
+    font-size: clamp(2rem, 5vw, 2.75rem);
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+
+  .tile__mono {
+    font-family: var(--mono);
+    font-size: 0.9375rem;
+    word-break: break-all;
+    color: var(--ink);
+  }
+
+  .tile__note {
+    font-size: 0.8125rem;
+    color: var(--mist);
+    line-height: 1.45;
+  }
+
+  .island {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 1.5rem;
+    border: 1px solid var(--rule-strong);
+    border-radius: 3px;
+    background: var(--panel);
+  }
+
+  .island__note {
+    margin: 0;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--mist);
+    max-width: 40ch;
+  }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: rgba(21, 28, 36, 0.07);
+    padding: 0.1em 0.3em;
+    border-radius: 2px;
+  }
+</style>

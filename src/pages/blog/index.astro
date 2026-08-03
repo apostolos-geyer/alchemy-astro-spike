@@ -2,11 +2,111 @@
 // PRERENDERED: collection read at build time -> should become static HTML.
 export const prerender = true;
 import { getCollection } from "astro:content";
+import Terminal from "../../layouts/Terminal.astro";
+
 const posts = await getCollection("blog");
+const ordered = [...posts].sort(
+  (a, b) => Number(a.id.replace(/\D/g, "")) - Number(b.id.replace(/\D/g, "")),
+);
+const fmt = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
 ---
-<html lang="en"><head><meta charset="utf-8" /><title>blog (prerendered)</title></head>
-<body>
-  <h1>blog index (prerendered)</h1>
-  <p data-count={posts.length}>posts: {posts.length}</p>
-  <ul>{posts.map((p) => <li><a href={`/blog/${p.id}`}>{p.data.title}</a></li>)}</ul>
-</body></html>
+
+<Terminal title="Blog — astro-ssr-spike" active="/blog">
+  <section class="band band--flush">
+    <div class="u-wrap u-stack">
+      <p class="u-eyebrow">Gate /blog · prerendered at build</p>
+      <h1 class="u-display u-display--md">Twelve entries,<br />settled before deploy</h1>
+      <p class="u-lede">
+        Every row here was resolved when the site was built and written out as a static file. The
+        Worker never sees these requests, which is also why middleware headers do not appear on them.
+      </p>
+      <ul class="chipset">
+        <li class="chip" data-count={ordered.length}>{ordered.length} entries</li>
+        <li class="chip">served from assets</li>
+        <li class="chip">byte-identical across requests</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="u-wrap">
+      <ol class="roll">
+        {
+          ordered.map((post) => (
+            <li class="roll__row">
+              <a class="roll__link" href={`/blog/${post.id}`}>
+                <span class="roll__id">{post.id}</span>
+                <span class="roll__title">{post.data.title}</span>
+                <span class="roll__date">{fmt.format(post.data.date)}</span>
+                <span class="roll__tags">{post.data.tags.join(" · ")}</span>
+              </a>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </section>
+</Terminal>
+
+<style>
+  .roll {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--rule-strong);
+  }
+
+  .roll__link {
+    display: grid;
+    grid-template-columns: 6.5rem minmax(0, 1fr) 8rem 9rem;
+    gap: 1rem;
+    align-items: baseline;
+    padding: 0.95rem 0.5rem;
+    text-decoration: none;
+    border-bottom: 1px solid var(--rule);
+    transition: background 0.15s, padding-left 0.15s;
+  }
+
+  .roll__link:hover {
+    background: rgba(240, 167, 25, 0.1);
+    padding-left: 0.9rem;
+  }
+
+  .roll__id {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--mist);
+  }
+
+  .roll__title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .roll__date,
+  .roll__tags {
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--mist);
+  }
+
+  @media (max-width: 46rem) {
+    .roll__link {
+      grid-template-columns: 5rem minmax(0, 1fr);
+      gap: 0.3rem 0.9rem;
+    }
+
+    .roll__date,
+    .roll__tags {
+      grid-column: 2;
+    }
+  }
+</style>

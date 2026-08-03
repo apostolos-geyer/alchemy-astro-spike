@@ -2,12 +2,97 @@
 // PRERENDERED per-entry pages via getStaticPaths.
 export const prerender = true;
 import { getCollection, render } from "astro:content";
+import Terminal from "../../layouts/Terminal.astro";
+
 export async function getStaticPaths() {
   const posts = await getCollection("blog");
   return posts.map((post) => ({ params: { id: post.id }, props: { post } }));
 }
+
 const { post } = Astro.props;
 const { Content } = await render(post);
+
+const fmt = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
 ---
-<html lang="en"><head><meta charset="utf-8" /><title>{post.data.title}</title></head>
-<body data-post-id={post.id}><Content /></body></html>
+
+<Terminal title={`${post.data.title} — astro-ssr-spike`} active="/blog">
+  <article class="entry" data-post-id={post.id}>
+    <header class="band band--flush">
+      <div class="u-wrap u-stack">
+        <p class="u-eyebrow">{post.id} · prerendered</p>
+        <h1 class="u-display u-display--md">{post.data.title}</h1>
+        <ul class="chipset">
+          <li class="chip">{fmt.format(post.data.date)}</li>
+          {post.data.tags.map((tag: string) => <li class="chip">{tag}</li>)}
+        </ul>
+      </div>
+    </header>
+
+    <div class="band">
+      <div class="u-wrap">
+        <div class="prose">
+          <Content />
+        </div>
+        <p class="entry__back"><a href="/blog">Back to the index</a></p>
+      </div>
+    </div>
+  </article>
+</Terminal>
+
+<style>
+  .prose {
+    max-width: 68ch;
+    font-size: 1rem;
+    line-height: 1.75;
+    color: var(--ink-soft);
+  }
+
+  .prose :global(h1) {
+    font-family: var(--display);
+    font-variation-settings: "wdth" 108;
+    font-weight: 700;
+    font-size: clamp(1.25rem, 3vw, 1.6rem);
+    text-transform: uppercase;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    margin: 0 0 1.5rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--rule-strong);
+  }
+
+  .prose :global(p) {
+    margin: 0 0 1.15rem;
+  }
+
+  .prose :global(p:first-of-type) {
+    font-size: 1.0625rem;
+    color: var(--ink);
+  }
+
+  .prose :global(a) {
+    color: var(--ink);
+    text-underline-offset: 3px;
+  }
+
+  .entry__back {
+    margin: 2.5rem 0 0;
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .entry__back a {
+    color: var(--ink);
+    text-underline-offset: 4px;
+  }
+
+  .entry__back a:hover {
+    color: #a5760f;
+  }
+</style>

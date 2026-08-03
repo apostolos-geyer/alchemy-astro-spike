@@ -3,6 +3,9 @@
 // nonce/timestamp would be identical across requests — that's the assertion.
 export const prerender = false;
 
+import EdgeBoard from "../components/EdgeBoard.svelte";
+import Terminal from "../layouts/Terminal.astro";
+
 const nonce = crypto.randomUUID();
 const renderedAt = new Date().toISOString();
 const cfRay = Astro.request.headers.get("cf-ray") ?? "no-cf-ray";
@@ -12,18 +15,93 @@ const colo = (Astro.request as any).cf?.colo ?? "no-colo";
 // Workers Cache is enabled on this Worker, so a dynamic route must opt OUT
 // explicitly or the edge serves a cached render and SSR silently stops.
 Astro.response.headers.set("Cache-Control", "no-store");
+
+// The board wants fixed-width codes; the raw values stay on the data
+// attributes below, which is what the live tests read.
+const coloCode = colo === "no-colo" ? "DEV" : colo;
+const rayCode = cfRay === "no-cf-ray" ? "LOCALDEV" : cfRay.slice(0, 8);
 ---
 
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Astro SSR spike — server</title>
-  </head>
-  <body>
-    <h1>ssr page</h1>
-    <p data-nonce={nonce}>nonce: {nonce}</p>
-    <p data-rendered-at={renderedAt}>rendered at: {renderedAt}</p>
-    <p data-cf-ray={cfRay}>cf-ray: {cfRay}</p>
-    <p data-colo={colo}>colo: {colo}</p>
-  </body>
-</html>
+<Terminal title="Per-request render — astro-ssr-spike" active="/ssr">
+  <section class="band band--flush">
+    <div class="u-wrap head">
+      <div class="u-stack">
+        <p class="u-eyebrow">Gate /ssr · prerender false</p>
+        <h1 class="u-display u-display--md">This one is<br />rendered on demand</h1>
+        <p class="u-lede">
+          No flap on this page waited for JavaScript. The Worker ran when you asked for the URL, and
+          the codes below were already in the HTML it sent back. Reload and every value changes.
+        </p>
+        <ul class="chipset">
+          <li class="chip chip--live">no-store</li>
+          <li class="chip">middleware ran</li>
+          <li class="chip">worker render</li>
+        </ul>
+      </div>
+
+      <EdgeBoard
+        client:load
+        live={false}
+        origin={coloCode}
+        ray={rayCode}
+        mode="SSR"
+        renderedAt={renderedAt}
+      />
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="u-wrap">
+      <div class="band__head">
+        <p class="u-eyebrow">Readout</p>
+        <h2 class="band__title">Raw values from this request</h2>
+        <p class="band__note">
+          Outside Cloudflare, <code>cf-ray</code> and <code>colo</code> have nothing to report, so they
+          read <code>no-cf-ray</code> and <code>no-colo</code>. That is what a local dev server looks like.
+        </p>
+      </div>
+
+      <div class="readout">
+        <div class="readout__row">
+          <span class="readout__key">nonce</span>
+          <span class="readout__val" data-nonce={nonce}>{nonce}</span>
+        </div>
+        <div class="readout__row">
+          <span class="readout__key">rendered at</span>
+          <span class="readout__val" data-rendered-at={renderedAt}>{renderedAt}</span>
+        </div>
+        <div class="readout__row">
+          <span class="readout__key">cf-ray</span>
+          <span class="readout__val" data-cf-ray={cfRay}>{cfRay}</span>
+        </div>
+        <div class="readout__row">
+          <span class="readout__key">colo</span>
+          <span class="readout__val" data-colo={colo}>{colo}</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</Terminal>
+
+<style>
+  .head {
+    display: grid;
+    grid-template-columns: 1.05fr 0.95fr;
+    gap: clamp(2rem, 5vw, 4rem);
+    align-items: center;
+  }
+
+  @media (max-width: 54rem) {
+    .head {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: rgba(21, 28, 36, 0.07);
+    padding: 0.1em 0.3em;
+    border-radius: 2px;
+  }
+</style>
